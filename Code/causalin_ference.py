@@ -18,39 +18,6 @@ from dowhy.do_why import CausalModel
 import matplotlib.pyplot as plt
 DefaultStdout = sys.stdout
 
-#def getCausalRelated(data, islog=False):
-#    if not islog:
-#        file = open('logger.log', 'w')
-#        sys.stdout = file
-#    e_matrix = np.zeros(shape=(len(data.columns), len(data.columns)))
-#    p_matrix = np.zeros(shape=(len(data.columns), len(data.columns)))
-#    for i in range(len(data.columns)):
-#        for j in range(len(data.columns)):
-#            if i == j:
-#                continue
-#            treatment = data.columns[i]
-#            outcome = data.columns[j]
-#            #common_causes = set(data.columns) - set([treatment, outcome])
-#            common_causes = []
-#            try:
-#                model= CausalModel(data=data,treatment=treatment,outcome=outcome,common_causes=common_causes)
-#                #model.view_model()
-#                identified_estimand = model.identify_effect()
-#                estimate = model.estimate_effect(identified_estimand, method_name="backdoor.linear_regression", test_significance=True)
-#                e_matrix[j][i] = estimate.value
-#                p_matrix[j][i] = estimate.significance_test['p_value']
-#            except:
-#                e_matrix[j][i] = 0
-#                p_matrix[j][i] = 1
-#            if not islog:
-#                sys.stdout = DefaultStdout
-#                print('relation', i, j, e_matrix[j][i], p_matrix[j][i])
-#                sys.stdout = file
-#    if not islog:
-#        sys.stdout = DefaultStdout
-#    return e_matrix, p_matrix
-
-
 def getPvalue(v0, data, treatment, outcome, common_causes, t=300):
     p = 1
     rdata = copy.deepcopy(data)
@@ -74,7 +41,7 @@ def getPvalue(v0, data, treatment, outcome, common_causes, t=300):
     return p if p<0.5 else 1-p
     
 
-def getCausalRelated_from_pattern(step, aucm, data, pattern, rt=100, islog=False):
+def getCausalRelated_from_pattern2(step, aucm, data, pattern, rt=100, islog=False):
     if not islog:
         file = open('logger.log', 'w')
         sys.stdout = file
@@ -107,11 +74,13 @@ def getCausalRelated_from_pattern(step, aucm, data, pattern, rt=100, islog=False
                 identified_estimand = model.identify_effect()
                 estimate = model.estimate_effect(identified_estimand, method_name="backdoor.linear_regression")
                 e_matrix[j][i] = estimate.value
-                p_matrix[j][i] = getPvalue(estimate.value, data, treatment, outcome, common_causes, t=100)
+                if e_matrix[j][i]==0:
+                    p_matrix[j][i] = 1
+                else:
+                    p_matrix[j][i] = getPvalue(estimate.value, data, treatment, outcome, common_causes, t=100)
             except:
                 e_matrix[j][i] = 0
                 p_matrix[j][i] = 1
-            #p_matrix[j][i] = getPvalue(file, estimate.value, data, treatment, outcome, common_causes, t=300)
             if not islog:
                 sys.stdout = DefaultStdout
                 print(step, aucm, 'causal', i, j, e_matrix[j][i], p_matrix[j][i])
@@ -119,6 +88,46 @@ def getCausalRelated_from_pattern(step, aucm, data, pattern, rt=100, islog=False
                 sys.stdout = file
     if not islog:
         sys.stdout = DefaultStdout
+        file.close()
+    return e_matrix, p_matrix
+
+def getCausalRelated_from_pattern(step, aucm, data, pattern, rt=100, islog=False):
+    e_matrix = np.zeros(shape=(len(data.columns), len(data.columns)))
+    p_matrix = np.zeros(shape=(len(data.columns), len(data.columns)))
+    DG=nx.DiGraph()
+    links = []
+    for i in range(len(pattern)):
+        for j in range(len(pattern[0])):
+            if i!=j and pattern[i, j]==1:
+                links.append((j, i))
+    DG.add_edges_from(links)
+    for i in range(len(data.columns)):
+        for j in range(len(data.columns)):
+            if i == j:
+                continue
+            treatment = data.columns[i]
+            outcome = data.columns[j]
+            
+            try:
+                causes_node1 = nx.ancestors(DG, i)
+                causes_node2 = nx.ancestors(DG, j)
+                common_causes = list(causes_node1.intersection(causes_node2))
+                common_causes = [data.columns[c] for c in common_causes]
+            except:
+                common_causes = []
+            #common_causes = [data.columns[c] for c in range(len(data.columns)) if pattern[i][c]==1 and pattern[j][c]==1]
+            try:
+                model= CausalModel(data=data,treatment=treatment,outcome=outcome,common_causes=common_causes)
+                identified_estimand = model.identify_effect()
+                estimate = model.estimate_effect(identified_estimand, method_name="backdoor.linear_regression")
+                e_matrix[j][i] = estimate.value
+                if e_matrix[j][i]==0:
+                    p_matrix[j][i] = 1
+                else:
+                    p_matrix[j][i] = getPvalue(estimate.value, data, treatment, outcome, common_causes, t=100)
+            except:
+                e_matrix[j][i] = 0
+                p_matrix[j][i] = 1
     return e_matrix, p_matrix
 
 def data_check(data):
@@ -166,47 +175,42 @@ def getRelated(data, islog=False):
     return e_matrix, p_matrix
 
 if __name__ == '__main__':
-    p_matrix1 = pd.read_csv('species.csv', index_col=0)
-    Species = set(p_matrix1.columns)
-    Species = sorted(list(Species))
+    dataname = 'NASH'
+    data = pd.read_table('Data/'+dataname+'.txt', index_col=0)
+    species2 = set(data.index)
+    print(len(species2))
+    Species = sorted(species2)
     
-    dataname = 'Normal'
-    data = pd.read_table(dataname+'_L7_f.txt', index_col=0)
-    #print(data)
-    #data = data_check(data)
-    data = data.loc[:, Species]
-    #print(data)
-    relate_data = copy.deepcopy(data)
-    ds = np.array([float(i) for i in data.sum(1)])
-    for i in data.columns:
-        relate_data[i] = relate_data[i]/np.array(ds)
+    #####
+    dataname = 'NASH'
+    relate_data = pd.read_table('Data/'+dataname+'_ra.txt', index_col=0).T
+    relate_data = relate_data.loc[:, Species]
 
-    e_matrix, p_matrix = getRelated(relate_data, islog=False)
-    pd.DataFrame(e_matrix, columns=data.columns, index=data.columns).to_csv('test4/'+dataname+'_nocommon_ematrix.csv')
-    pd.DataFrame(p_matrix, columns=data.columns, index=data.columns).to_csv('test4/'+dataname+'_nocommon_pmatrix.csv')
-#    p_matrix = pd.read_csv('test2/'+dataname+'_nocommon_pmatrix.csv', index_col=0)
-    pattern = (np.array(p_matrix)<0.01)*1.0
+    sparcc = pd.read_table('Data/'+dataname+'_p.txt', index_col=0)
+    sparcc = sparcc.loc[Species, Species]
+    print(np.array(sparcc))
+
+    pattern = (np.array(sparcc)<0.01)*1.0
     print(pattern)
     aucm = 0.1
-    learn = 0.5
-    f = open('test4/'+dataname+'_log.txt', 'w')
+    learn = 0.2
+    f = open('Result/'+dataname+'_log.txt', 'w')
     rt=100
-    for step in range(100):
+    for step in range(55):
         p_sel = bernoulli.rvs(pattern)
         new_e_matrix, new_p_matrix = getCausalRelated_from_pattern(step, aucm, relate_data, p_sel, rt=rt, islog=False)
         print(pattern)
-        pd.DataFrame(new_e_matrix, columns=data.columns, index=data.columns).to_csv('test4/'+dataname+'_common_ematrix_step'+str(step)+'.csv')
-        pd.DataFrame(new_p_matrix, columns=data.columns, index=data.columns).to_csv('test4/'+dataname+'_common_pmatrix_step'+str(step)+'.csv')
-        pd.DataFrame(pattern, columns=data.columns, index=data.columns).to_csv('test4/'+dataname+'_common_pattern_step'+str(step)+'.csv')
+        pd.DataFrame(new_e_matrix, columns=Species, index=Species).to_csv('Result/'+dataname+'_common_ematrix_step'+str(step)+'.csv')
+        pd.DataFrame(new_p_matrix, columns=Species, index=Species).to_csv('Result/'+dataname+'_common_pmatrix_step'+str(step)+'.csv')
+        pd.DataFrame(pattern, columns=Species, index=Species).to_csv('Result/'+dataname+'_common_pattern_step'+str(step)+'.csv')
         new_aucm = get_auc(1-new_p_matrix, p_sel)
-        if random.random()<0.5*(new_aucm/aucm):
-            e_matrix = new_e_matrix
-            p_matrix = new_p_matrix
-            aucm = new_aucm
-        pattern += learn*(p_matrix<0.05)*np.random.uniform(low=0, high=1, size=(pattern.shape[0], pattern.shape[1]))
-        pattern -= learn*(p_matrix>0.3)*np.random.uniform(low=0, high=1, size=(pattern.shape[0], pattern.shape[1]))
+        #if random.random()<0.5*(new_aucm/aucm):
+        e_matrix = new_e_matrix
+        p_matrix = new_p_matrix
+        aucm = new_aucm
+        pattern += learn*(p_matrix<=0.05)*np.random.uniform(low=0, high=1, size=(pattern.shape[0], pattern.shape[1]))
+        pattern -= learn*(p_matrix>=0.3)*np.random.uniform(low=0, high=1, size=(pattern.shape[0], pattern.shape[1]))
         pattern = pattern.clip(0, 1)
         f.write(str(step)+'\t'+str(aucm)+'\n')
         f.flush()
     f.close()
-    
