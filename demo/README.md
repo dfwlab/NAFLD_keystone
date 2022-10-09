@@ -1,2 +1,2 @@
 
-Please open the "demo.ipynb" to view the protocal of demo dataset.
+### The protocol of keystone species identification using a demo dataset is available in "demo.ipynb".
