@@ -1,2 +1,2 @@
 
-Please open the demo.ipyn to view the protocal of demo dataset.
+Please open the "demo.ipynb" to view the protocal of demo dataset.
